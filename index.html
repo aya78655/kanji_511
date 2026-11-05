@@ -57,6 +57,10 @@ tr.done td{opacity:.45}
 .q-area{height:160mm;margin-top:4mm}
 .col{white-space:nowrap;overflow:hidden;border-left:.2mm dotted #aaa;padding:2mm 0}
 .col:last-child{border-left:none}
+.line{white-space:nowrap;line-height:1.15}
+.mean{white-space:normal;font-size:var(--mf);line-height:1.3;font-family:var(--gothic);color:#333;padding-top:var(--mpt);margin-right:.8mm}
+.mean b{font-weight:bold;display:inline-block;margin-bottom:.5em}
+td.s .m{display:block;font-family:var(--gothic);font-size:12px;color:var(--sub)}
 .num{font-family:var(--gothic);font-weight:bold;text-combine-upright:all;display:inline-block;margin-bottom:.4em}
 .boxes{display:inline-block}
 .box{display:inline-block;width:var(--box,1.55em);height:var(--box,1.55em);border:.35mm solid #000;vertical-align:middle;margin-bottom:-.35mm}
@@ -94,6 +98,8 @@ rt{font-size:var(--rt,.42em);font-family:var(--gothic);letter-spacing:.05em}
       <div><label for="fTag">単元・メモ（任意）</label><input type="text" id="fTag" list="tagList" placeholder="例）第7回"></div>
       <datalist id="tagList"></datalist>
     </div>
+    <label for="fMean">漢字の意味（任意・問題用紙の問題文の下に小さく出ます）</label>
+    <input type="text" id="fMean" placeholder="例）物事を行うために、前もって方法や順序を考えること">
     <div class="err" id="fErr"></div>
     <div class="toolbar">
       <button id="btnSave">追加する</button>
@@ -126,6 +132,7 @@ rt{font-size:var(--rt,.42em);font-family:var(--gothic);letter-spacing:.05em}
     </div>
     <div class="opts">
       <label><input type="checkbox" id="pShuffle" checked>順番をシャッフル</label>
+      <label><input type="checkbox" id="pMean" checked>漢字の意味を問題用紙に表示</label>
       <label><input type="checkbox" id="pFlip">答えを逆さまに印刷</label>
     </div>
     <div class="toolbar">
@@ -184,7 +191,7 @@ rt{font-size:var(--rt,.42em);font-family:var(--gothic);letter-spacing:.05em}
   }
   function resetForm(){
     editingId = null;
-    $('fSentence').value=''; $('fAnswer').value='';
+    $('fSentence').value=''; $('fAnswer').value=''; $('fMean').value='';
     $('btnSave').textContent='追加する'; $('btnCancel').style.display='none';
     $('formTitle').textContent='間違えた漢字を登録';
     $('fErr').textContent=''; updateParsed();
@@ -193,24 +200,25 @@ rt{font-size:var(--rt,.42em);font-family:var(--gothic);letter-spacing:.05em}
     const sentence = $('fSentence').value.trim().replace(/\[/g,'【').replace(/\]/g,'】');
     const answer = $('fAnswer').value.trim();
     const tag = $('fTag').value.trim();
+    const meaning = $('fMean').value.trim();
     if(!parse(sentence)){ $('fErr').textContent='問題文の中に【 】を1か所だけ入れてください。'; return; }
     if(!answer){ $('fErr').textContent='答えの漢字を入れてください。'; $('fAnswer').focus(); return; }
     if(editingId){
       const it = items.find(x=>x.id===editingId);
-      Object.assign(it,{sentence,answer,tag});
+      Object.assign(it,{sentence,answer,tag,meaning});
     }else{
       const dup = items.find(x=>x.sentence===sentence && x.answer===answer);
-      if(dup){ dup.count=(dup.count||1)+1; dup.done=false; }
+      if(dup){ dup.count=(dup.count||1)+1; dup.done=false; if(meaning) dup.meaning=meaning; }
       else{
         const id = Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-        items.unshift({id,sentence,answer,tag,count:1,done:false,added:new Date().toISOString().slice(0,10)});
+        items.unshift({id,sentence,answer,tag,meaning,count:1,done:false,added:new Date().toISOString().slice(0,10)});
         selected.add(id);
       }
     }
     save(); resetForm(); render(); $('fSentence').focus();
   }
   $('fSentence').addEventListener('input', updateParsed);
-  ['fSentence','fAnswer','fTag'].forEach(id=>$(id).addEventListener('keydown',e=>{ if(e.key==='Enter' && !e.isComposing){ e.preventDefault(); submit(); }}));
+  ['fSentence','fAnswer','fTag','fMean'].forEach(id=>$(id).addEventListener('keydown',e=>{ if(e.key==='Enter' && !e.isComposing){ e.preventDefault(); submit(); }}));
   $('btnSave').onclick = submit;
   $('btnCancel').onclick = resetForm;
 
@@ -232,7 +240,7 @@ rt{font-size:var(--rt,.42em);font-family:var(--gothic);letter-spacing:.05em}
         const p = plain(it);
         return `<tr class="${it.done?'done':''}" data-id="${it.id}">
           <td><input type="checkbox" class="sel" ${selected.has(it.id)?'checked':''}></td>
-          <td class="s">${esc(p.pre)}<span class="kata">${esc(p.kata)}</span>${esc(p.post)}</td>
+          <td class="s">${esc(p.pre)}<span class="kata">${esc(p.kata)}</span>${esc(p.post)}${it.meaning?`<span class="m">意味：${esc(it.meaning)}</span>`:''}</td>
           <td class="a">${esc(it.answer)}</td>
           <td>${it.tag?`<span class="tag">${esc(it.tag)}</span>`:''}</td>
           <td><span class="cnt"><button class="sub small" data-act="minus">−</button>${it.count||1}<button class="sub small" data-act="plus">＋</button></span></td>
@@ -259,7 +267,7 @@ rt{font-size:var(--rt,.42em);font-family:var(--gothic);letter-spacing:.05em}
     if(act==='done'){ it.done=!it.done; if(it.done) selected.delete(id); }
     if(act==='del'){ if(!confirm('この問題を削除しますか？')) return; items=items.filter(x=>x.id!==id); selected.delete(id); }
     if(act==='edit'){
-      editingId=id; $('fSentence').value=it.sentence; $('fAnswer').value=it.answer; $('fTag').value=it.tag||'';
+      editingId=id; $('fSentence').value=it.sentence; $('fAnswer').value=it.answer; $('fTag').value=it.tag||''; $('fMean').value=it.meaning||'';
       $('btnSave').textContent='更新する'; $('btnCancel').style.display='';
       $('formTitle').textContent='問題を編集'; updateParsed(); window.scrollTo({top:0,behavior:'smooth'}); return;
     }
@@ -288,13 +296,14 @@ rt{font-size:var(--rt,.42em);font-family:var(--gothic);letter-spacing:.05em}
     pages.forEach((pg,pi)=>{
       const n = pg.length;
       const colW = Math.min(19, 190/n);  // mm
-      const fs = colW*0.4;
+      const showMean = $('pMean').checked && pg.some(it=>it.meaning);
+      const fs = colW*(showMean?0.34:0.4);
       const colWA = Math.min(12, 186/n), fsA = Math.min(5, colWA*0.48);
       const start = pi*per;
       const qs = pg.map((it,k)=>{
         const p = plain(it);
         const boxes = Array.from(it.answer).map(()=> '<span class="box"></span>').join('');
-        return `<div class="col fit" style="width:${colW}mm;font-size:${fs}mm;--box:${(fs*1.55).toFixed(2)}mm;--rt:${(fs*0.42).toFixed(2)}mm">${numHtml(start+k+1)}${esc(p.pre)}<ruby><span class="boxes">${boxes}</span><rt>${esc(p.kata)}</rt></ruby>${esc(p.post)}</div>`;
+        return `<div class="col fit" style="width:${colW}mm;font-size:${fs}mm;--box:${(fs*1.55).toFixed(2)}mm;--rt:${(fs*0.42).toFixed(2)}mm;--mf:${Math.max(2.3,colW*0.15).toFixed(2)}mm;--mpt:${(fs*1.4).toFixed(2)}mm"><div class="line">${numHtml(start+k+1)}${esc(p.pre)}<ruby><span class="boxes">${boxes}</span><rt>${esc(p.kata)}</rt></ruby>${esc(p.post)}</div>${showMean&&it.meaning?`<div class="mean"><b>意味</b>${esc(it.meaning)}</div>`:''}</div>`;
       }).join('');
       const as = pg.map((it,k)=>{
         const p = plain(it);
@@ -323,6 +332,10 @@ rt{font-size:var(--rt,.42em);font-family:var(--gothic);letter-spacing:.05em}
       while(col.scrollHeight > col.clientHeight + 1 && guard++ < 40){
         size *= 0.94; col.style.fontSize = size+'mm';
       }
+      // 意味が長くて列からはみ出す場合は、意味の文字だけ小さくする
+      const m = col.querySelector('.mean');
+      if(m){ let mf = parseFloat(getComputedStyle(col).getPropertyValue('--mf')); guard = 0;
+        while(col.scrollWidth > col.clientWidth + 1 && mf > 1.6 && guard++ < 30){ mf *= 0.92; col.style.setProperty('--mf', mf+'mm'); } }
     });
   }
   function showPreview(){
