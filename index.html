@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>漢字やり直し</title>
+<style>
+:root{
+  --bg:#f6f4ef; --card:#fff; --ink:#222; --sub:#666; --line:#ddd;
+  --accent:#2f6f5e; --accent2:#e8f2ee; --warn:#b3412f;
+  --mincho:"Hiragino Mincho ProN","Yu Mincho","YuMincho","Noto Serif CJK JP","Noto Serif JP",serif;
+  --gothic:"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans CJK JP","Noto Sans JP",sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--gothic);line-height:1.6}
+.app{max-width:980px;margin:0 auto;padding:16px}
+h1{font-size:22px;margin:8px 0 16px}
+h2{font-size:17px;margin:0 0 10px;color:var(--accent)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+label{display:block;font-size:13px;color:var(--sub);margin:8px 0 2px}
+input[type=text],select{width:100%;padding:8px 10px;font-size:16px;border:1px solid #ccc;border-radius:6px;font-family:inherit}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+.row>div{flex:1;min-width:160px}
+button{font-family:inherit;font-size:14px;padding:8px 14px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer}
+button.sub{background:#fff;color:var(--accent)}
+button.small{padding:3px 8px;font-size:12px}
+button.danger{border-color:var(--warn);color:var(--warn);background:#fff}
+.hint{font-size:12px;color:var(--sub)}
+.err{color:var(--warn);font-size:13px;min-height:1.2em}
+.parsed{font-family:var(--mincho);font-size:18px;margin-top:6px}
+.kata{border-bottom:2px solid var(--accent);padding:0 2px}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+.toolbar select{width:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{border-bottom:1px solid var(--line);padding:6px 4px;text-align:left;vertical-align:middle}
+th{font-size:12px;color:var(--sub);font-weight:normal}
+td.s{font-family:var(--mincho);font-size:16px}
+td.a{font-family:var(--mincho);font-size:18px;font-weight:bold;white-space:nowrap}
+th{white-space:nowrap}
+tr.done td{opacity:.45}
+.cnt{display:inline-flex;gap:4px;align-items:center}
+.tag{display:inline-block;white-space:nowrap;background:var(--accent2);color:var(--accent);border-radius:10px;padding:0 8px;font-size:12px}
+.empty{color:var(--sub);text-align:center;padding:20px}
+.opts{display:flex;gap:16px;flex-wrap:wrap;margin:8px 0}
+.opts label{display:inline-flex;gap:4px;align-items:center;margin:0;font-size:14px;color:var(--ink)}
+#preview{overflow-x:auto}
+#sheets .sheet{zoom:.55;margin:0 auto 12px;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+
+/* ===== 印刷用シート ===== */
+.sheet{width:210mm;height:297mm;padding:10mm;background:#fff;color:#000;position:relative;overflow:hidden;font-family:var(--mincho)}
+.sh-head{height:16mm;display:flex;align-items:flex-end;gap:6mm;border-bottom:.4mm solid #000;padding-bottom:2mm;font-family:var(--gothic)}
+.sh-title{font-size:6mm;font-weight:bold;flex:1}
+.sh-field{font-size:3.6mm;white-space:nowrap}
+.sh-field .blank{display:inline-block;border-bottom:.3mm solid #000;min-width:30mm;height:5mm;vertical-align:bottom}
+.sh-field .blank.s{min-width:14mm}
+.area{writing-mode:vertical-rl;display:block;overflow:hidden}
+.q-area{height:160mm;margin-top:4mm}
+.col{white-space:nowrap;overflow:hidden;border-left:.2mm dotted #aaa;padding:2mm 0}
+.col:last-child{border-left:none}
+.num{font-family:var(--gothic);font-weight:bold;text-combine-upright:all;display:inline-block;margin-bottom:.4em}
+.boxes{display:inline-block}
+.box{display:inline-block;width:var(--box,1.55em);height:var(--box,1.55em);border:.35mm solid #000;vertical-align:middle;margin-bottom:-.35mm}
+ruby{ruby-position:over}
+rt{font-size:var(--rt,.42em);font-family:var(--gothic);letter-spacing:.05em}
+.cut{height:9mm;margin-top:3mm;border-top:.4mm dashed #555;display:flex;justify-content:space-between;align-items:center;font-size:3.2mm;color:#555;font-family:var(--gothic)}
+.a-wrap{height:calc(297mm - 20mm - 16mm - 4mm - 160mm - 3mm - 9mm);display:flex;flex-direction:column}
+.a-label{font-family:var(--gothic);font-weight:bold;font-size:4mm;margin-bottom:1mm}
+.a-area{flex:1;min-height:0;border:.3mm solid #000;padding:2mm}
+.a-area .col{border-left:.2mm dotted #bbb}
+.ans{color:#c00;font-weight:bold}
+.flip .a-wrap{transform:rotate(180deg)}
+
+@page{size:A4 portrait;margin:0}
+@media print{
+  body{background:#fff}
+  .app{display:none}
+  #sheets .sheet{zoom:1;margin:0;box-shadow:none;page-break-after:always;break-after:page}
+  #sheets .sheet:last-child{page-break-after:auto;break-after:auto}
+  .ans{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>漢字やり直しノート</h1>
+
+  <div class="card">
+    <h2 id="formTitle">間違えた漢字を登録</h2>
+    <label for="fSentence">問題文（書かせたい部分を【 】でかこむ）</label>
+    <input type="text" id="fSentence" placeholder="例）夏休みの【ケイカク】を立てる。">
+    <div class="parsed" id="fParsed"></div>
+    <div class="row">
+      <div><label for="fAnswer">答え（漢字）</label><input type="text" id="fAnswer" placeholder="例）計画"></div>
+      <div><label for="fTag">単元・メモ（任意）</label><input type="text" id="fTag" list="tagList" placeholder="例）第7回"></div>
+      <datalist id="tagList"></datalist>
+    </div>
+    <div class="err" id="fErr"></div>
+    <div class="toolbar">
+      <button id="btnSave">追加する</button>
+      <button class="sub" id="btnCancel" style="display:none">編集をやめる</button>
+      <span class="hint">Enterキーでも追加できます。送りがなは【 】の外に書きます（例：【タ】てる → 答え「立」）。</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>問題一覧</h2>
+    <div class="toolbar">
+      <select id="filterTag"><option value="">すべての単元</option></select>
+      <label style="display:inline-flex;gap:4px;margin:0;color:var(--ink)"><input type="checkbox" id="showDone">「できた」も表示</label>
+      <button class="sub small" id="selAll">表示中をすべて選択</button>
+      <button class="sub small" id="selNone">選択解除</button>
+      <span class="hint" id="selCount"></span>
+    </div>
+    <table>
+      <thead><tr><th style="width:28px"></th><th>問題文</th><th>答え</th><th>単元</th><th>間違えた回数</th><th></th></tr></thead>
+      <tbody id="list"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>問題用紙をつくる</h2>
+    <div class="row">
+      <div><label for="pTitle">タイトル</label><input type="text" id="pTitle" value="漢字やり直しテスト"></div>
+      <div style="max-width:200px"><label for="pPer">1枚あたりの問題数</label>
+        <select id="pPer"><option>8</option><option>10</option><option selected>12</option><option>15</option></select></div>
+    </div>
+    <div class="opts">
+      <label><input type="checkbox" id="pShuffle" checked>順番をシャッフル</label>
+      <label><input type="checkbox" id="pFlip">答えを逆さまに印刷</label>
+    </div>
+    <div class="toolbar">
+      <button class="sub" id="btnPreview">プレビュー</button>
+      <button id="btnPrint">印刷・PDFで保存</button>
+      <span class="hint">印刷画面で「PDFとして保存」を選ぶとPDFになります（用紙A4・余白なし・倍率100%）。</span>
+    </div>
+    <div class="err" id="pErr"></div>
+  </div>
+
+  <div class="card" id="preview" style="display:none">
+    <h2>プレビュー</h2>
+  </div>
+
+  <div class="card">
+    <h2>バックアップ</h2>
+    <p class="hint" style="margin-top:0">問題はこのブラウザの中に保存されています。別のパソコンやブラウザで使うときや、念のための保存にどうぞ。</p>
+    <div class="toolbar">
+      <button class="sub" id="btnExport">ファイルに書き出す</button>
+      <button class="sub" id="btnImport">ファイルから読み込む</button>
+      <input type="file" id="importFile" accept=".json,application/json" style="display:none">
+    </div>
+  </div>
+</div>
+
+<div id="sheets"></div>
+
+<script>
+(function(){
+  const KEY = 'kanjiRedo.v1';
+  let items = [];
+  let selected = new Set();
+  let editingId = null;
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  function load(){
+    try{ const d = JSON.parse(localStorage.getItem(KEY) || '{}'); items = d.items || []; selected = new Set(d.selected || []); }
+    catch(e){ items = []; }
+  }
+  function save(){
+    try{ localStorage.setItem(KEY, JSON.stringify({items, selected:[...selected]})); }catch(e){}
+  }
+  function parse(s){
+    s = s.replace(/\[/g,'【').replace(/\]/g,'】');
+    const m = s.match(/^([^【】]*)【([^【】]+)】([^【】]*)$/);
+    return m ? {pre:m[1], kata:m[2].trim(), post:m[3]} : null;
+  }
+  function plain(it){ const p = parse(it.sentence); return p ? p : {pre:it.sentence,kata:'',post:''}; }
+
+  // ---------- 登録フォーム ----------
+  function updateParsed(){
+    const v = $('fSentence').value.trim();
+    const p = parse(v);
+    $('fParsed').innerHTML = p ? esc(p.pre)+'<span class="kata">'+esc(p.kata)+'</span>'+esc(p.post) : '';
+  }
+  function resetForm(){
+    editingId = null;
+    $('fSentence').value=''; $('fAnswer').value='';
+    $('btnSave').textContent='追加する'; $('btnCancel').style.display='none';
+    $('formTitle').textContent='間違えた漢字を登録';
+    $('fErr').textContent=''; updateParsed();
+  }
+  function submit(){
+    const sentence = $('fSentence').value.trim().replace(/\[/g,'【').replace(/\]/g,'】');
+    const answer = $('fAnswer').value.trim();
+    const tag = $('fTag').value.trim();
+    if(!parse(sentence)){ $('fErr').textContent='問題文の中に【 】を1か所だけ入れてください。'; return; }
+    if(!answer){ $('fErr').textContent='答えの漢字を入れてください。'; $('fAnswer').focus(); return; }
+    if(editingId){
+      const it = items.find(x=>x.id===editingId);
+      Object.assign(it,{sentence,answer,tag});
+    }else{
+      const dup = items.find(x=>x.sentence===sentence && x.answer===answer);
+      if(dup){ dup.count=(dup.count||1)+1; dup.done=false; }
+      else{
+        const id = Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+        items.unshift({id,sentence,answer,tag,count:1,done:false,added:new Date().toISOString().slice(0,10)});
+        selected.add(id);
+      }
+    }
+    save(); resetForm(); render(); $('fSentence').focus();
+  }
+  $('fSentence').addEventListener('input', updateParsed);
+  ['fSentence','fAnswer','fTag'].forEach(id=>$(id).addEventListener('keydown',e=>{ if(e.key==='Enter' && !e.isComposing){ e.preventDefault(); submit(); }}));
+  $('btnSave').onclick = submit;
+  $('btnCancel').onclick = resetForm;
+
+  // ---------- 一覧 ----------
+  function visible(){
+    const tag = $('filterTag').value, showDone = $('showDone').checked;
+    return items.filter(it => (!tag || it.tag===tag) && (showDone || !it.done));
+  }
+  function render(){
+    const tags = [...new Set(items.map(x=>x.tag).filter(Boolean))];
+    const cur = $('filterTag').value;
+    $('filterTag').innerHTML = '<option value="">すべての単元</option>' + tags.map(t=>`<option${t===cur?' selected':''}>${esc(t)}</option>`).join('');
+    $('tagList').innerHTML = tags.map(t=>`<option value="${esc(t)}">`).join('');
+    const v = visible();
+    if(!v.length){
+      $('list').innerHTML = `<tr><td colspan="6" class="empty">${items.length?'表示する問題がありません':'まだ問題がありません。上のフォームから登録してください。'}</td></tr>`;
+    }else{
+      $('list').innerHTML = v.map(it=>{
+        const p = plain(it);
+        return `<tr class="${it.done?'done':''}" data-id="${it.id}">
+          <td><input type="checkbox" class="sel" ${selected.has(it.id)?'checked':''}></td>
+          <td class="s">${esc(p.pre)}<span class="kata">${esc(p.kata)}</span>${esc(p.post)}</td>
+          <td class="a">${esc(it.answer)}</td>
+          <td>${it.tag?`<span class="tag">${esc(it.tag)}</span>`:''}</td>
+          <td><span class="cnt"><button class="sub small" data-act="minus">−</button>${it.count||1}<button class="sub small" data-act="plus">＋</button></span></td>
+          <td style="white-space:nowrap"><button class="sub small" data-act="done">${it.done?'もどす':'できた'}</button>
+            <button class="sub small" data-act="edit">編集</button>
+            <button class="danger small" data-act="del">削除</button></td></tr>`;
+      }).join('');
+    }
+    const n = items.filter(x=>selected.has(x.id)).length;
+    $('selCount').textContent = `選択中：${n}問`;
+  }
+  $('list').addEventListener('change', e=>{
+    if(!e.target.classList.contains('sel')) return;
+    const id = e.target.closest('tr').dataset.id;
+    e.target.checked ? selected.add(id) : selected.delete(id);
+    save(); render();
+  });
+  $('list').addEventListener('click', e=>{
+    const b = e.target.closest('button'); if(!b) return;
+    const id = b.closest('tr').dataset.id, it = items.find(x=>x.id===id);
+    const act = b.dataset.act;
+    if(act==='plus') it.count=(it.count||1)+1;
+    if(act==='minus') it.count=Math.max(1,(it.count||1)-1);
+    if(act==='done'){ it.done=!it.done; if(it.done) selected.delete(id); }
+    if(act==='del'){ if(!confirm('この問題を削除しますか？')) return; items=items.filter(x=>x.id!==id); selected.delete(id); }
+    if(act==='edit'){
+      editingId=id; $('fSentence').value=it.sentence; $('fAnswer').value=it.answer; $('fTag').value=it.tag||'';
+      $('btnSave').textContent='更新する'; $('btnCancel').style.display='';
+      $('formTitle').textContent='問題を編集'; updateParsed(); window.scrollTo({top:0,behavior:'smooth'}); return;
+    }
+    save(); render();
+  });
+  $('filterTag').onchange = render;
+  $('showDone').onchange = render;
+  $('selAll').onclick = ()=>{ visible().forEach(x=>selected.add(x.id)); save(); render(); };
+  $('selNone').onclick = ()=>{ selected.clear(); save(); render(); };
+
+  // ---------- 問題用紙 ----------
+  const zen = n => String(n).replace(/[0-9]/g, d=>String.fromCharCode(d.charCodeAt(0)+0xFEE0));
+  function numHtml(n){ return n<10 ? `<span class="num">${zen(n)}</span>` : `<span class="num">${n}</span>`; }
+  function today(){ const d=new Date(); return `${d.getMonth()+1}月${d.getDate()}日`; }
+
+  function buildSheets(){
+    let list = items.filter(x=>selected.has(x.id)).reverse();  // 登録した順
+    if(!list.length){ $('pErr').textContent='問題を1つ以上選んでください。'; return false; }
+    $('pErr').textContent='';
+    if($('pShuffle').checked){ list = list.slice(); for(let i=list.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [list[i],list[j]]=[list[j],list[i]]; } }
+    const per = +$('pPer').value;
+    const pages = [];
+    for(let i=0;i<list.length;i+=per) pages.push(list.slice(i,i+per));
+    const title = esc($('pTitle').value.trim() || '漢字やり直しテスト');
+    let html = '';
+    pages.forEach((pg,pi)=>{
+      const n = pg.length;
+      const colW = Math.min(19, 190/n);  // mm
+      const fs = colW*0.4;
+      const colWA = Math.min(12, 186/n), fsA = Math.min(5, colWA*0.48);
+      const start = pi*per;
+      const qs = pg.map((it,k)=>{
+        const p = plain(it);
+        const boxes = Array.from(it.answer).map(()=> '<span class="box"></span>').join('');
+        return `<div class="col fit" style="width:${colW}mm;font-size:${fs}mm;--box:${(fs*1.55).toFixed(2)}mm;--rt:${(fs*0.42).toFixed(2)}mm">${numHtml(start+k+1)}${esc(p.pre)}<ruby><span class="boxes">${boxes}</span><rt>${esc(p.kata)}</rt></ruby>${esc(p.post)}</div>`;
+      }).join('');
+      const as = pg.map((it,k)=>{
+        const p = plain(it);
+        return `<div class="col fit" style="width:${colWA}mm;font-size:${fsA}mm">${numHtml(start+k+1)}${esc(p.pre)}<span class="ans">${esc(it.answer)}</span>${esc(p.post)}</div>`;
+      }).join('');
+      const pageLabel = pages.length>1 ? `（${pi+1}/${pages.length}）` : '';
+      html += `<div class="sheet${$('pFlip').checked?' flip':''}">
+        <div class="sh-head"><div class="sh-title">${title}${pageLabel}</div>
+          <div class="sh-field">${today()}</div>
+          <div class="sh-field">名前 <span class="blank"></span></div>
+          <div class="sh-field"><span class="blank s"></span>／${n}</div></div>
+        <div class="area q-area">${qs}</div>
+        <div class="cut"><span>✂ ‐‐‐ きりとり線 ‐‐‐</span><span>答え合わせのときに使いましょう</span></div>
+        <div class="a-wrap"><div class="a-label">こたえ</div><div class="area a-area">${as}</div></div>
+      </div>`;
+    });
+    $('sheets').innerHTML = html;
+    fitAll();
+    return true;
+  }
+  // 長い文が列からはみ出したら文字を小さくする
+  function fitAll(){
+    document.querySelectorAll('#sheets .fit').forEach(col=>{
+      let size = parseFloat(col.style.fontSize);
+      let guard = 0;
+      while(col.scrollHeight > col.clientHeight + 1 && guard++ < 40){
+        size *= 0.94; col.style.fontSize = size+'mm';
+      }
+    });
+  }
+  function showPreview(){
+    if(!buildSheets()) return;
+    const pv = $('preview'); pv.style.display='';
+    pv.appendChild($('sheets'));
+    pv.scrollIntoView({behavior:'smooth'});
+  }
+  $('btnPreview').onclick = showPreview;
+  $('btnPrint').onclick = ()=>{
+    if(!buildSheets()) return;
+    $('preview').style.display=''; $('preview').appendChild($('sheets'));
+    setTimeout(()=>window.print(), 100);
+  };
+  // 印刷時はプレビュー枠の外に出す
+  window.addEventListener('beforeprint', ()=>document.body.appendChild($('sheets')));
+  window.addEventListener('afterprint', ()=>{ if($('preview').style.display!=='none') $('preview').appendChild($('sheets')); });
+
+  // ---------- バックアップ ----------
+  $('btnExport').onclick = ()=>{
+    const blob = new Blob([JSON.stringify({app:'kanjiRedo',version:1,items},null,2)],{type:'application/json'});
+    const a = document.createElement('a');
+    const d = new Date();
+    a.href = URL.createObjectURL(blob);
+    a.download = `漢字やり直し_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}.json`;
+    a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  };
+  $('btnImport').onclick = ()=>$('importFile').click();
+  $('importFile').onchange = e=>{
+    const f = e.target.files[0]; if(!f) return;
+    const r = new FileReader();
+    r.onload = ()=>{
+      try{
+        const d = JSON.parse(r.result); const arr = d.items || d;
+        if(!Array.isArray(arr)) throw 0;
+        const mode = items.length && confirm('今の問題に追加しますか？\n［OK］追加する　［キャンセル］置きかえる') ? 'merge' : 'replace';
+        if(mode==='replace'){ items = []; selected.clear(); }
+        const ids = new Set(items.map(x=>x.id));
+        arr.forEach(x=>{ if(x && x.sentence && x.answer && !ids.has(x.id)){ items.push(Object.assign({count:1,done:false,tag:''},x,{id:x.id||Date.now().toString(36)+Math.random().toString(36).slice(2,6)})); } });
+        save(); render(); alert(`${arr.length}問を読み込みました。`);
+      }catch(err){ alert('読み込めませんでした。書き出したファイルを選んでください。'); }
+      e.target.value='';
+    };
+    r.readAsText(f);
+  };
+
+  load(); render(); updateParsed();
+})();
+</script>
+</body>
+</html>
