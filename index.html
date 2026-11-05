@@ -47,6 +47,12 @@ input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent)}
 .pvw{max-width:980px;margin:0 auto;padding:0 16px 24px}
 #sheets .sheet{zoom:var(--pz,.55);margin:0 auto 12px;box-shadow:0 2px 8px rgba(0,0,0,.15)}
 .pv-hint{margin:0 0 10px}
+.gh-help{padding-left:1.4em;margin:0 0 8px}
+.gh-help li{margin-bottom:4px}
+.gh-status{font-size:13px;margin-top:6px;color:var(--sub);min-height:1.2em}
+.gh-status.ok{color:var(--accent)}
+.gh-status.ng{color:var(--warn)}
+.sync-badge{font-size:12px;font-weight:normal;color:var(--sub);margin-left:8px}
 /* ===== スマホ ===== */
 @media (max-width:640px){
   .app{padding:12px}
@@ -168,9 +174,38 @@ rt{font-size:var(--rt,.42em);font-family:var(--gothic);letter-spacing:.05em}
     <div class="err" id="pErr"></div>
   </div>
 
+  <div class="card" id="ghCard">
+    <h2>GitHubに保存（パソコンとスマホで共有）</h2>
+    <p class="hint" style="margin-top:0">問題をGitHubのリポジトリに保存します。パソコンとスマホで同じ設定をすると、どちらで登録した問題も両方に出てきます。<a href="#" id="ghHelpToggle">設定のしかた</a></p>
+    <ol class="hint gh-help" id="ghHelp" style="display:none">
+      <li>GitHubで、問題データ用の<b>非公開（Private）リポジトリ</b>を作ります（例：kanji-data）。アプリを置いている公開リポジトリとは別にすると、問題が外から見えません。</li>
+      <li>GitHubの Settings → Developer settings → Personal access tokens → <b>Fine-grained tokens</b> →「Generate new token」。</li>
+      <li>Repository access で「Only select repositories」→ 1で作ったリポジトリだけを選びます。</li>
+      <li>Permissions の <b>Contents</b> を「Read and write」にして作成し、表示されたトークン（github_pat_…）をコピーします。</li>
+      <li>下の欄に入力して「設定を保存して同期」を押します。スマホでも同じように入力します。</li>
+    </ol>
+    <div class="row">
+      <div><label for="ghOwner">GitHubのユーザー名</label><input type="text" id="ghOwner" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="例）ayapan"></div>
+      <div><label for="ghRepo">リポジトリ名</label><input type="text" id="ghRepo" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="例）kanji-data"></div>
+    </div>
+    <label for="ghToken">トークン</label>
+    <input type="password" id="ghToken" autocomplete="off" placeholder="github_pat_…">
+    <div class="row">
+      <div><label for="ghPath">保存するファイル名</label><input type="text" id="ghPath" autocapitalize="off" value="kanji_data.json"></div>
+      <div><label for="ghBranch">ブランチ</label><input type="text" id="ghBranch" autocapitalize="off" value="main"></div>
+    </div>
+    <div class="opts"><label><input type="checkbox" id="ghAuto" checked>問題を変えたら自動でGitHubに保存する</label></div>
+    <div class="toolbar">
+      <button id="ghConnect">設定を保存して同期</button>
+      <button class="sub" id="ghSync">今すぐ同期</button>
+      <button class="danger small" id="ghClear">この端末の設定を消す</button>
+    </div>
+    <div class="gh-status" id="ghStatus"></div>
+  </div>
+
   <div class="card">
     <h2>バックアップ</h2>
-    <p class="hint" style="margin-top:0">問題はこのブラウザの中に保存されています。別のパソコンやブラウザで使うときや、念のための保存にどうぞ。</p>
+    <p class="hint" style="margin-top:0">問題はこのブラウザの中に保存されています。GitHubを使わないときの受けわたしや、念のための保存にどうぞ。</p>
     <div class="toolbar">
       <button class="sub" id="btnExport">ファイルに書き出す</button>
       <button class="sub" id="btnImport">ファイルから読み込む</button>
@@ -190,17 +225,20 @@ rt{font-size:var(--rt,.42em);font-family:var(--gothic);letter-spacing:.05em}
   const KEY = 'kanjiRedo.v1';
   let items = [];
   let selected = new Set();
+  let deleted = {};   // 削除した問題のid → 時刻（同期用）
   let editingId = null;
   const $ = id => document.getElementById(id);
   const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
   function load(){
-    try{ const d = JSON.parse(localStorage.getItem(KEY) || '{}'); items = d.items || []; selected = new Set(d.selected || []); }
+    try{ const d = JSON.parse(localStorage.getItem(KEY) || '{}'); items = d.items || []; selected = new Set(d.selected || []); deleted = d.deleted || {}; }
     catch(e){ items = []; }
   }
   function save(){
-    try{ localStorage.setItem(KEY, JSON.stringify({items, selected:[...selected]})); }catch(e){}
+    try{ localStorage.setItem(KEY, JSON.stringify({items, selected:[...selected], deleted})); }catch(e){}
   }
+  // 問題の内容が変わったとき（GitHubへの自動保存のきっかけ）
+  function changed(){ save(); scheduleSync(); }
   function parse(s){
     s = s.replace(/\[/g,'【').replace(/\]/g,'】');
     const m = s.match(/^([^【】]*)【([^【】]+)】([^【】]*)$/);
@@ -230,17 +268,17 @@ rt{font-size:var(--rt,.42em);font-family:var(--gothic);letter-spacing:.05em}
     if(!answer){ $('fErr').textContent='答えの漢字を入れてください。'; $('fAnswer').focus(); return; }
     if(editingId){
       const it = items.find(x=>x.id===editingId);
-      Object.assign(it,{sentence,answer,tag,meaning});
+      Object.assign(it,{sentence,answer,tag,meaning,u:Date.now()});
     }else{
       const dup = items.find(x=>x.sentence===sentence && x.answer===answer);
-      if(dup){ dup.count=(dup.count||1)+1; dup.done=false; if(meaning) dup.meaning=meaning; }
+      if(dup){ dup.count=(dup.count||1)+1; dup.done=false; if(meaning) dup.meaning=meaning; dup.u=Date.now(); }
       else{
         const id = Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-        items.unshift({id,sentence,answer,tag,meaning,count:1,done:false,added:new Date().toISOString().slice(0,10)});
+        items.unshift({id,sentence,answer,tag,meaning,u:Date.now(),count:1,done:false,added:new Date().toISOString().slice(0,10)});
         selected.add(id);
       }
     }
-    save(); resetForm(); render(); $('fSentence').focus();
+    changed(); resetForm(); render(); $('fSentence').focus();
   }
   $('fSentence').addEventListener('input', updateParsed);
   ['fSentence','fAnswer','fTag','fMean'].forEach(id=>$(id).addEventListener('keydown',e=>{ if(e.key==='Enter' && !e.isComposing){ e.preventDefault(); submit(); }}));
@@ -290,13 +328,14 @@ rt{font-size:var(--rt,.42em);font-family:var(--gothic);letter-spacing:.05em}
     if(act==='plus') it.count=(it.count||1)+1;
     if(act==='minus') it.count=Math.max(1,(it.count||1)-1);
     if(act==='done'){ it.done=!it.done; if(it.done) selected.delete(id); }
-    if(act==='del'){ if(!confirm('この問題を削除しますか？')) return; items=items.filter(x=>x.id!==id); selected.delete(id); }
+    if(act==='del'){ if(!confirm('この問題を削除しますか？')) return; items=items.filter(x=>x.id!==id); selected.delete(id); deleted[id]=Date.now(); }
     if(act==='edit'){
       editingId=id; $('fSentence').value=it.sentence; $('fAnswer').value=it.answer; $('fTag').value=it.tag||''; $('fMean').value=it.meaning||'';
       $('btnSave').textContent='更新する'; $('btnCancel').style.display='';
       $('formTitle').textContent='問題を編集'; updateParsed(); window.scrollTo({top:0,behavior:'smooth'}); return;
     }
-    save(); render();
+    if(it) it.u = Date.now();
+    changed(); render();
   });
   $('filterTag').onchange = render;
   $('showDone').onchange = render;
@@ -403,15 +442,137 @@ rt{font-size:var(--rt,.42em);font-family:var(--gothic);letter-spacing:.05em}
         const mode = items.length && confirm('今の問題に追加しますか？\n［OK］追加する　［キャンセル］置きかえる') ? 'merge' : 'replace';
         if(mode==='replace'){ items = []; selected.clear(); }
         const ids = new Set(items.map(x=>x.id));
-        arr.forEach(x=>{ if(x && x.sentence && x.answer && !ids.has(x.id)){ items.push(Object.assign({count:1,done:false,tag:''},x,{id:x.id||Date.now().toString(36)+Math.random().toString(36).slice(2,6)})); } });
-        save(); render(); alert(`${arr.length}問を読み込みました。`);
+        arr.forEach(x=>{ if(x && x.sentence && x.answer && !ids.has(x.id)){ items.push(Object.assign({count:1,done:false,tag:''},x,{u:Date.now(),id:x.id||Date.now().toString(36)+Math.random().toString(36).slice(2,6)})); delete deleted[x.id]; } });
+        changed(); render(); alert(`${arr.length}問を読み込みました。`);
       }catch(err){ alert('読み込めませんでした。書き出したファイルを選んでください。'); }
       e.target.value='';
     };
     r.readAsText(f);
   };
 
-  load(); render(); updateParsed();
+
+  // ---------- GitHubに保存 ----------
+  const GHKEY = 'kanjiRedo.github';
+  let gh = {};
+  let syncTimer = null, syncing = false, syncAgain = false;
+  function ghLoad(){ try{ gh = JSON.parse(localStorage.getItem(GHKEY) || '{}'); }catch(e){ gh = {}; } }
+  function ghSave(){ try{ localStorage.setItem(GHKEY, JSON.stringify(gh)); }catch(e){} }
+  function ghReady(){ return gh.owner && gh.repo && gh.token; }
+  function ghFill(){
+    $('ghOwner').value = gh.owner||''; $('ghRepo').value = gh.repo||''; $('ghToken').value = gh.token||'';
+    $('ghPath').value = gh.path||'kanji_data.json'; $('ghBranch').value = gh.branch||'main';
+    $('ghAuto').checked = gh.auto!==false;
+  }
+  function status(msg, cls){
+    const el = $('ghStatus'); el.textContent = msg; el.className = 'gh-status'+(cls?' '+cls:'');
+  }
+  function b64encode(str){
+    const bytes = new TextEncoder().encode(str); let bin = '';
+    for(let i=0;i<bytes.length;i+=0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i,i+0x8000));
+    return btoa(bin);
+  }
+  function b64decode(b64){
+    const bin = atob(b64.replace(/\s/g,'')); const bytes = new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
+    return new TextDecoder().decode(bytes);
+  }
+  function apiUrl(){
+    const path = (gh.path||'kanji_data.json').split('/').map(encodeURIComponent).join('/');
+    return `https://api.github.com/repos/${encodeURIComponent(gh.owner)}/${encodeURIComponent(gh.repo)}/contents/${path}`;
+  }
+  async function api(method, body){
+    const url = apiUrl() + (method==='GET' ? `?ref=${encodeURIComponent(gh.branch||'main')}&t=${Date.now()}` : '');
+    const res = await fetch(url, {method, cache:'no-store',
+      headers:{'Authorization':'Bearer '+gh.token,'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'},
+      body: body ? JSON.stringify(body) : undefined});
+    return res;
+  }
+  function errMsg(code){
+    if(code===401) return 'トークンが正しくないか、期限が切れています。';
+    if(code===403) return 'このリポジトリに書きこむ権限がありません（トークンの Contents を Read and write にしてください）。';
+    if(code===404) return 'リポジトリが見つかりません。ユーザー名・リポジトリ名・ブランチと、トークンで選んだリポジトリを確かめてください。';
+    return `GitHubでエラーが起きました（${code}）。`;
+  }
+  // 2つのデータを合わせる：同じ問題は新しく変えた方を残し、削除した問題は消す
+  function mergeData(remote){
+    const del = Object.assign({}, remote.deleted||{});
+    Object.entries(deleted).forEach(([id,t])=>{ if(!del[id] || del[id]<t) del[id]=t; });
+    const map = new Map();
+    (remote.items||[]).forEach(x=>{ if(x && x.id) map.set(x.id, x); });
+    items.forEach(x=>{ const r = map.get(x.id); if(!r || (x.u||0) >= (r.u||0)) map.set(x.id, x); });
+    let out = [...map.values()].filter(x=> !(del[x.id] && del[x.id] >= (x.u||0)));
+    out.sort((a,b)=> a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
+    // 古い削除記録（90日以上前）は整理する
+    const limit = Date.now() - 90*864e5;
+    Object.keys(del).forEach(id=>{ if(del[id] < limit) delete del[id]; });
+    return {items:out, deleted:del};
+  }
+  async function sync(){
+    if(!ghReady()) return;
+    if(syncing){ syncAgain = true; return; }
+    syncing = true; status('GitHubと同期しています…');
+    try{
+      for(let attempt=0; attempt<3; attempt++){
+        let res = await api('GET'), sha, remote = {items:[], deleted:{}};
+        if(res.status===200){
+          const j = await res.json(); sha = j.sha;
+          try{ remote = JSON.parse(b64decode(j.content)); }catch(e){ throw new Error('GitHubのファイルが読めませんでした（別の内容のファイルかもしれません）。'); }
+        }else if(res.status!==404 || !(await repoExists())){
+          throw new Error(errMsg(res.status));
+        }
+        const before = JSON.stringify(items);
+        const m = mergeData(remote);
+        items = m.items; deleted = m.deleted;
+        const ids = new Set(items.map(x=>x.id)); selected.forEach(id=>{ if(!ids.has(id)) selected.delete(id); });
+        save(); if(JSON.stringify(items)!==before) render();
+        const payload = JSON.stringify({app:'kanjiRedo', version:2, savedAt:new Date().toISOString(), items, deleted}, null, 1);
+        const sameAsRemote = sha && JSON.stringify({i:remote.items||[],d:remote.deleted||{}}) === JSON.stringify({i:items,d:deleted});
+        if(sameAsRemote){ break; }
+        const body = {message:`漢字やり直し：${items.length}問を保存`, content:b64encode(payload), branch:gh.branch||'main'};
+        if(sha) body.sha = sha;
+        res = await api('PUT', body);
+        if(res.status===200 || res.status===201) break;
+        if(res.status===409 || res.status===422){ if(attempt<2) continue; }
+        throw new Error(errMsg(res.status));
+      }
+      const t = new Date();
+      gh.last = t.toISOString(); ghSave();
+      status(`GitHubと同期しました（${t.getHours()}:${String(t.getMinutes()).padStart(2,'0')}・${items.length}問）`, 'ok');
+    }catch(e){
+      status(e.message && !/fetch/i.test(e.message) ? e.message : 'GitHubにつながりませんでした。インターネットの接続を確かめてください。', 'ng');
+    }finally{
+      syncing = false;
+      if(syncAgain){ syncAgain = false; sync(); }
+    }
+  }
+  async function repoExists(){
+    const r = await fetch(`https://api.github.com/repos/${encodeURIComponent(gh.owner)}/${encodeURIComponent(gh.repo)}`,
+      {cache:'no-store', headers:{'Authorization':'Bearer '+gh.token,'Accept':'application/vnd.github+json'}});
+    return r.status===200;
+  }
+  function scheduleSync(){
+    if(!ghReady() || gh.auto===false) return;
+    clearTimeout(syncTimer); status('変更を保存する準備をしています…');
+    syncTimer = setTimeout(sync, 1500);
+  }
+  $('ghHelpToggle').onclick = e=>{ e.preventDefault(); const h=$('ghHelp'); h.style.display = h.style.display==='none' ? '' : 'none'; };
+  $('ghConnect').onclick = ()=>{
+    gh = {owner:$('ghOwner').value.trim(), repo:$('ghRepo').value.trim(), token:$('ghToken').value.trim(),
+          path:$('ghPath').value.trim()||'kanji_data.json', branch:$('ghBranch').value.trim()||'main', auto:$('ghAuto').checked};
+    if(!ghReady()){ status('ユーザー名・リポジトリ名・トークンを入れてください。','ng'); return; }
+    ghSave(); sync();
+  };
+  $('ghSync').onclick = ()=>{ if(!ghReady()){ status('先に上の欄を入れて「設定を保存して同期」を押してください。','ng'); return; } sync(); };
+  $('ghAuto').onchange = ()=>{ if(ghReady()){ gh.auto = $('ghAuto').checked; ghSave(); } };
+  $('ghClear').onclick = ()=>{
+    if(!confirm('この端末に保存したGitHubの設定（トークンなど）を消しますか？\n問題データとGitHubのファイルは消えません。')) return;
+    gh = {}; try{ localStorage.removeItem(GHKEY); }catch(e){} ghFill(); status('設定を消しました。');
+  };
+  // 別の端末で変えた分を取りこむため、画面に戻ってきたときにも同期する
+  document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible' && ghReady() && gh.auto!==false) sync(); });
+
+  load(); ghLoad(); ghFill(); render(); updateParsed();
+  if(ghReady()){ if(gh.auto!==false) sync(); else status('GitHubの設定ずみです。「今すぐ同期」で保存・読みこみします。'); }
 })();
 </script>
 </body>
